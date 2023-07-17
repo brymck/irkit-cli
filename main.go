@@ -13,7 +13,7 @@ import (
 	"github.com/brymck/irkit-cli/wifi"
 )
 
-func getMessages() (string, error) {
+func getUrl(path string) (string, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return "", err
@@ -24,8 +24,12 @@ func getMessages() (string, error) {
 		return "", errors.New("no IRKit name set")
 	}
 
+	url := fmt.Sprintf("http://%s.local/%s", cfg.Name, path)
+	return url, nil
+}
+
+func sendGetRequest(url string) (string, error) {
 	client := &http.Client{}
-	url := fmt.Sprintf("http://%s.local/messages", cfg.Name)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println("Error creating GET request:", err)
@@ -54,10 +58,18 @@ func getMessages() (string, error) {
 	return string(body), nil
 }
 
-func setWifi(payload string) error {
+func getMessages() (string, error) {
+	url, err := getUrl("messages")
+	if err != nil {
+		return "", err
+	}
+
+	return sendGetRequest(url)
+}
+
+func sendPostRequest(url string, payload string) error {
 	client := &http.Client{}
-	req, err := http.NewRequest("POST", "http://192.168.1.1/wifi", bytes.NewBuffer([]byte(payload)))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(payload)))
 	if err != nil {
 		fmt.Println("Error creating POST request:", err)
 		return err
@@ -80,12 +92,26 @@ func setWifi(payload string) error {
 	return nil
 }
 
+func postMessages(payload string) error {
+	url, err := getUrl("messages")
+	if err != nil {
+		return err
+	}
+
+	return sendPostRequest(url, payload)
+}
+
+func setWifi(payload string) error {
+	return sendPostRequest("http://192.168.1.1/wifi", payload)
+}
+
 func main() {
 	// Define subcommands
 	cfgCmd := flag.NewFlagSet("config", flag.ExitOnError)
 	nameText := cfgCmd.String("name", "", "IRKit name (run `dns-sd -B _irkit._tcp` to find the instance name)")
 
 	msgCmd := flag.NewFlagSet("messages", flag.ExitOnError)
+	contentText := msgCmd.String("content", "", "Message to send")
 
 	wifiCmd := flag.NewFlagSet("wifi", flag.ExitOnError)
 	ssidText := wifiCmd.String("ssid", "", "SSID")
@@ -145,9 +171,18 @@ func main() {
 			}
 		}
 	} else if msgCmd.Parsed() {
-		body, err := getMessages()
-		if err != nil {
+		if *contentText == "" {
+			body, err := getMessages()
+			if err != nil {
+				fmt.Println("Error getting messages:", err)
+				os.Exit(1)
+			}
 			fmt.Println(body)
+		} else {
+			if err := postMessages(*contentText); err != nil {
+				fmt.Println("Error sending message:", err)
+				os.Exit(1)
+			}
 		}
 	} else if wifiCmd.Parsed() {
 		if *ssidText == "" {
