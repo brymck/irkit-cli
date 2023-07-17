@@ -9,12 +9,24 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/brymck/irkit-cli/config"
 	"github.com/brymck/irkit-cli/wifi"
 )
 
 func getMessages() (string, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+
+	if cfg.Name == "" {
+		fmt.Println("No IRKit name set. Please run `irkit-cli config --name irkit<xxxx>`.")
+		return "", errors.New("no IRKit name set")
+	}
+
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", "http://irkita2dc.local/messages", nil)
+	url := fmt.Sprintf("http://%s.local/messages", cfg.Name)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Println("Error creating GET request:", err)
 		return "", err
@@ -70,7 +82,11 @@ func setWifi(payload string) error {
 
 func main() {
 	// Define subcommands
+	cfgCmd := flag.NewFlagSet("config", flag.ExitOnError)
+	nameText := cfgCmd.String("name", "", "IRKit name (run `dns-sd -B _irkit._tcp` to find the instance name)")
+
 	msgCmd := flag.NewFlagSet("messages", flag.ExitOnError)
+
 	wifiCmd := flag.NewFlagSet("wifi", flag.ExitOnError)
 	ssidText := wifiCmd.String("ssid", "", "SSID")
 	pwdText := wifiCmd.String("password", "", "Password")
@@ -86,6 +102,8 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "config":
+		cfgCmd.Parse(os.Args[2:])
 	case "messages":
 		msgCmd.Parse(os.Args[2:])
 	case "wifi":
@@ -106,7 +124,27 @@ func main() {
 	}
 
 	// Execute subcommand
-	if msgCmd.Parsed() {
+	if cfgCmd.Parsed() {
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Println("Error loading config:", err)
+			os.Exit(1)
+		}
+
+		save := false
+		if *nameText != "" {
+			cfg.Name = *nameText
+			save = true
+		}
+
+		cfg.Dump()
+		if save {
+			if err := cfg.Save(); err != nil {
+				fmt.Println("Error saving config:", err)
+				os.Exit(1)
+			}
+		}
+	} else if msgCmd.Parsed() {
 		body, err := getMessages()
 		if err != nil {
 			fmt.Println(body)
